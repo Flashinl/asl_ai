@@ -1,11 +1,9 @@
 services:
   - type: web
-    name: asl-to-text-ai
+    name: asl-to-text-ai-full
     env: python
     plan: starter
-    buildCommand: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: python web_app/app.py
     envVars:
       - key: FLASK_ENV
@@ -14,6 +12,4 @@ services:
         value: false
       - key: PYTHONPATH
         value: /opt/render/project/repo/src
-      - key: PORT
-        value: 10000
     healthCheckPath: /api/health
