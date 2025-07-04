@@ -5,24 +5,43 @@ Main Flask web application for ASL-to-Text AI system.
 import os
 import sys
 import logging
-import asyncio
 from pathlib import Path
-import cv2
-import numpy as np
 from flask import Flask, render_template, request, jsonify, Response
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
-import base64
-import io
-from PIL import Image
 import threading
 import time
+import base64
+import io
+
+# Try to import ML dependencies with fallbacks
+try:
+    import cv2
+    import numpy as np
+    from PIL import Image
+    ML_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"ML dependencies not available: {e}")
+    ML_AVAILABLE = False
+
+# Try to import SocketIO
+try:
+    from flask_socketio import SocketIO, emit
+    SOCKETIO_AVAILABLE = True
+except ImportError:
+    logging.warning("SocketIO not available - real-time features disabled")
+    SOCKETIO_AVAILABLE = False
 
 # Add src directory to path
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
-from translation.asl_translator import ASLTranslator
-from utils.config import get_config, validate_config
+# Try to import ASL components
+try:
+    from translation.asl_translator import ASLTranslator
+    from utils.config import get_config, validate_config
+    ASL_COMPONENTS_AVAILABLE = True
+except ImportError as e:
+    logging.warning(f"ASL components not available: {e}")
+    ASL_COMPONENTS_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,22 +55,37 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file upload
 # Enable CORS
 CORS(app, origins=["*"])
 
-# Initialize SocketIO for real-time communication
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+# Initialize SocketIO for real-time communication (if available)
+if SOCKETIO_AVAILABLE:
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+else:
+    socketio = None
 
 # Global translator instance
 translator = None
-config = get_config()
+if ASL_COMPONENTS_AVAILABLE:
+    config = get_config()
+else:
+    config = {
+        'web': {
+            'host': '0.0.0.0',
+            'port': 5000,
+            'debug': False
+        }
+    }
 
 def initialize_translator():
     """Initialize the ASL translator with default models."""
     global translator
     try:
-        # For now, initialize without pre-trained models
-        # In production, you would load actual trained models
+        # Initialize with error handling for cloud deployment
         translator = ASLTranslator()
         logger.info("ASL Translator initialized successfully")
         return True
+    except ImportError as e:
+        logger.warning(f"ML dependencies not available: {e}")
+        logger.info("Running in limited mode - some features may not work")
+        return False
     except Exception as e:
         logger.error(f"Failed to initialize translator: {e}")
         return False
@@ -157,102 +191,107 @@ def extract_frames_from_video(video_path: str, max_frames: int = 1000):
     logger.info(f"Extracted {len(frames)} frames from video")
     return frames
 
-@socketio.on('connect')
-def handle_connect():
-    """Handle client connection."""
-    logger.info(f"Client connected: {request.sid}")
-    emit('status', {'message': 'Connected to ASL translator'})
+# SocketIO event handlers (only if SocketIO is available)
+if SOCKETIO_AVAILABLE and socketio:
+    @socketio.on('connect')
+    def handle_connect():
+        """Handle client connection."""
+        logger.info(f"Client connected: {request.sid}")
+        emit('status', {'message': 'Connected to ASL translator'})
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnection."""
-    logger.info(f"Client disconnected: {request.sid}")
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        """Handle client disconnection."""
+        logger.info(f"Client disconnected: {request.sid}")
 
-@socketio.on('start_translation')
-def handle_start_translation():
-    """Start real-time translation session."""
-    if not translator:
-        emit('error', {'message': 'Translator not initialized'})
-        return
-    
-    # Reset translator state for new session
-    translator.reset_translation_state()
-    emit('translation_started', {'message': 'Translation session started'})
-    logger.info(f"Translation session started for client: {request.sid}")
+    @socketio.on('start_translation')
+    def handle_start_translation():
+        """Start real-time translation session."""
+        if not translator:
+            emit('error', {'message': 'Translator not initialized'})
+            return
 
-@socketio.on('video_frame')
-def handle_video_frame(data):
-    """
-    Handle incoming video frame for real-time translation.
-    
-    Args:
-        data: Dictionary containing base64 encoded frame data
-    """
-    if not translator:
-        emit('error', {'message': 'Translator not initialized'})
-        return
-    
-    try:
-        # Decode base64 frame
-        frame_data = data['frame'].split(',')[1]  # Remove data:image/jpeg;base64,
-        frame_bytes = base64.b64decode(frame_data)
-        
-        # Convert to OpenCV format
-        image = Image.open(io.BytesIO(frame_bytes))
-        frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        
-        # Process frame
-        timestamp = time.time()
-        result = translator.translate_frame(frame, timestamp)
-        
-        # Send results back to client
-        response = {
-            'timestamp': timestamp,
-            'processing_time': result['processing_time'],
-            'buffer_size': result['buffer_size'],
-            'detection_ready': result['detection_ready']
-        }
-        
-        # If a word was detected, send it
-        if result['word_added']:
-            response.update({
-                'word': result['text'],
-                'confidence': result['confidence'],
-                'sentence_complete': result['sentence_complete']
-            })
-            
-            # If sentence is complete, send processed sentence
-            if result['sentence_complete'] and 'processed_sentence' in result:
-                response['processed_sentence'] = result['processed_sentence']
-        
-        # Send current sentence being built
-        current_sentence = translator.get_current_sentence()
-        if current_sentence:
-            response['current_sentence'] = current_sentence
-        
-        emit('translation_result', response)
-        
-    except Exception as e:
-        logger.error(f"Frame processing failed: {e}")
-        emit('error', {'message': f'Frame processing failed: {str(e)}'})
-
-@socketio.on('stop_translation')
-def handle_stop_translation():
-    """Stop real-time translation session."""
-    if translator:
-        # Get final sentence
-        final_sentence = translator.get_current_sentence()
-        stats = translator.get_translation_stats()
-        
-        emit('translation_stopped', {
-            'final_sentence': final_sentence,
-            'stats': stats
-        })
-        
-        # Reset translator state
+        # Reset translator state for new session
         translator.reset_translation_state()
-    
-    logger.info(f"Translation session stopped for client: {request.sid}")
+        emit('translation_started', {'message': 'Translation session started'})
+        logger.info(f"Translation session started for client: {request.sid}")
+
+    @socketio.on('video_frame')
+    def handle_video_frame(data):
+        """
+        Handle incoming video frame for real-time translation.
+
+        Args:
+            data: Dictionary containing base64 encoded frame data
+        """
+        if not translator:
+            emit('error', {'message': 'Translator not initialized'})
+            return
+
+        try:
+            # Decode base64 frame
+            frame_data = data['frame'].split(',')[1]  # Remove data:image/jpeg;base64,
+            frame_bytes = base64.b64decode(frame_data)
+
+            # Convert to OpenCV format
+            if ML_AVAILABLE:
+                image = Image.open(io.BytesIO(frame_bytes))
+                frame = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+                # Process frame
+                timestamp = time.time()
+                result = translator.translate_frame(frame, timestamp)
+
+                # Send results back to client
+                response = {
+                    'timestamp': timestamp,
+                    'processing_time': result['processing_time'],
+                    'buffer_size': result['buffer_size'],
+                    'detection_ready': result['detection_ready']
+                }
+
+                # If a word was detected, send it
+                if result['word_added']:
+                    response.update({
+                        'word': result['text'],
+                        'confidence': result['confidence'],
+                        'sentence_complete': result['sentence_complete']
+                    })
+
+                    # If sentence is complete, send processed sentence
+                    if result['sentence_complete'] and 'processed_sentence' in result:
+                        response['processed_sentence'] = result['processed_sentence']
+
+                # Send current sentence being built
+                current_sentence = translator.get_current_sentence()
+                if current_sentence:
+                    response['current_sentence'] = current_sentence
+
+                emit('translation_result', response)
+            else:
+                emit('error', {'message': 'ML dependencies not available'})
+
+        except Exception as e:
+            logger.error(f"Frame processing failed: {e}")
+            emit('error', {'message': f'Frame processing failed: {str(e)}'})
+
+    @socketio.on('stop_translation')
+    def handle_stop_translation():
+        """Stop real-time translation session."""
+        if translator:
+            # Get final sentence
+            final_sentence = translator.get_current_sentence()
+            stats = translator.get_translation_stats()
+
+            emit('translation_stopped', {
+                'final_sentence': final_sentence,
+                'stats': stats
+            })
+
+            # Reset translator state
+            translator.reset_translation_state()
+
+        logger.info(f"Translation session stopped for client: {request.sid}")
 
 @app.route('/api/stats')
 def get_translation_stats():
@@ -303,15 +342,17 @@ def internal_error(error):
 
 def main():
     """Main application entry point."""
-    # Validate configuration
-    if not validate_config():
-        logger.error("Configuration validation failed")
-        return
+    # Validate configuration if available
+    if ASL_COMPONENTS_AVAILABLE:
+        if not validate_config():
+            logger.error("Configuration validation failed")
+            return
 
-    # Initialize translator
-    if not initialize_translator():
-        logger.error("Failed to initialize translator")
-        return
+        # Initialize translator
+        if not initialize_translator():
+            logger.warning("Translator initialization failed - running in limited mode")
+    else:
+        logger.info("Running in limited mode - ASL components not available")
 
     # Get configuration
     web_config = config['web']
@@ -322,15 +363,26 @@ def main():
 
     logger.info("Starting ASL-to-Text AI web application")
     logger.info(f"Server will run on {host}:{port}")
+    logger.info(f"ML Available: {ML_AVAILABLE}")
+    logger.info(f"SocketIO Available: {SOCKETIO_AVAILABLE}")
+    logger.info(f"ASL Components Available: {ASL_COMPONENTS_AVAILABLE}")
 
     # Run the application
-    socketio.run(
-        app,
-        host=host,
-        port=port,
-        debug=web_config['debug'],
-        allow_unsafe_werkzeug=True
-    )
+    if SOCKETIO_AVAILABLE and socketio:
+        socketio.run(
+            app,
+            host=host,
+            port=port,
+            debug=web_config['debug'],
+            allow_unsafe_werkzeug=True
+        )
+    else:
+        # Fallback to regular Flask if SocketIO not available
+        app.run(
+            host=host,
+            port=port,
+            debug=web_config['debug']
+        )
 
 if __name__ == '__main__':
     main()
