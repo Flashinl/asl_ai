@@ -12,10 +12,18 @@ from flask_cors import CORS
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app
-app = Flask(__name__, 
-           template_folder='web_app/templates',
-           static_folder='web_app/static')
+# Initialize Flask app with absolute paths
+import os
+from pathlib import Path
+
+# Get the directory where this script is located
+BASE_DIR = Path(__file__).parent
+TEMPLATE_DIR = BASE_DIR / 'web_app' / 'templates'
+STATIC_DIR = BASE_DIR / 'web_app' / 'static'
+
+app = Flask(__name__,
+           template_folder=str(TEMPLATE_DIR),
+           static_folder=str(STATIC_DIR))
 
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'asl-ai-demo-key')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file upload
@@ -26,7 +34,46 @@ CORS(app, origins=["*"])
 @app.route('/')
 def index():
     """Main landing page."""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        # Fallback if template not found
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>ASL-to-Text AI</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        </head>
+        <body>
+            <div class="container mt-5">
+                <h1>🤟 ASL-to-Text AI</h1>
+                <p class="lead">Advanced AI system for translating American Sign Language into written text.</p>
+                <div class="alert alert-info">
+                    <h4>Demo Mode</h4>
+                    <p>This is a demonstration version running on Render.</p>
+                    <p>Template error: {str(e)}</p>
+                </div>
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <h3>Features</h3>
+                        <ul>
+                            <li>Real-time ASL translation</li>
+                            <li>Video file upload support</li>
+                            <li>Advanced AI models</li>
+                            <li>Professional web interface</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h3>Quick Links</h3>
+                        <a href="/api/health" class="btn btn-primary">Health Check</a>
+                        <a href="/api/demo" class="btn btn-info">Demo Info</a>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
 
 @app.route('/live')
 def live_translation():
@@ -65,6 +112,19 @@ def health_check():
         "version": "1.0.0-demo",
         "mode": "demo",
         "message": "ASL-to-Text AI Demo - Full ML features require local installation"
+    })
+
+@app.route('/debug')
+def debug_info():
+    """Debug information."""
+    import os
+    return jsonify({
+        "working_directory": os.getcwd(),
+        "template_folder": app.template_folder,
+        "static_folder": app.static_folder,
+        "files_in_directory": os.listdir('.'),
+        "template_exists": os.path.exists(app.template_folder) if app.template_folder else False,
+        "static_exists": os.path.exists(app.static_folder) if app.static_folder else False
     })
 
 @app.route('/api/demo')
