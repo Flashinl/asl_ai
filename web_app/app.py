@@ -307,23 +307,27 @@ def main():
     if not validate_config():
         logger.error("Configuration validation failed")
         return
-    
+
     # Initialize translator
     if not initialize_translator():
         logger.error("Failed to initialize translator")
         return
-    
+
     # Get configuration
     web_config = config['web']
-    
+
+    # Use Render's PORT environment variable if available
+    port = int(os.environ.get('PORT', web_config['port']))
+    host = os.environ.get('HOST', web_config['host'])
+
     logger.info("Starting ASL-to-Text AI web application")
-    logger.info(f"Server will run on {web_config['host']}:{web_config['port']}")
-    
+    logger.info(f"Server will run on {host}:{port}")
+
     # Run the application
     socketio.run(
         app,
-        host=web_config['host'],
-        port=web_config['port'],
+        host=host,
+        port=port,
         debug=web_config['debug'],
         allow_unsafe_werkzeug=True
     )

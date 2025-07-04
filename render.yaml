@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: asl-to-text-ai
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python web_app/app.py
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: DEBUG
+        value: false
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/health
