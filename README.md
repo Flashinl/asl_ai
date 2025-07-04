@@ -78,24 +78,31 @@ asl-to-text-ai/
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Deploy to Render (Recommended)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Flashinl/asl_ai)
+
+### Local Development
+
+#### Prerequisites
 - Python 3.8+
 - OpenCV
-- TensorFlow/PyTorch
+- TensorFlow
 - MediaPipe
-- Flask/FastAPI
+- Flask
 
-### Installation
+#### Installation
 ```bash
-git clone https://github.com/Flashinl/asl-to-text-ai.git
-cd asl-to-text-ai
+git clone https://github.com/Flashinl/asl_ai.git
+cd asl_ai
 pip install -r requirements.txt
 ```
 
-### Running the Application
+#### Running the Application
 ```bash
 python web_app/app.py
 ```
+
+Access at: http://localhost:5000
 
 ## 🔧 Technical Specifications
 
