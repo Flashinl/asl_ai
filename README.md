@@ -78,8 +78,14 @@ asl-to-text-ai/
 
 ## 🚀 Quick Start
 
-### Deploy to Render (Recommended)
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Flashinl/asl_ai)
+### Deploy to Google Cloud Run (Recommended - FREE with 2GB RAM)
+```bash
+git clone https://github.com/Flashinl/asl_ai.git
+cd asl_ai
+gcloud run deploy asl-to-text-ai --source . --region us-central1 --memory 2Gi --allow-unauthenticated
+```
+
+**See [DEPLOY_CLOUD_RUN.md](DEPLOY_CLOUD_RUN.md) for detailed instructions**
 
 ### Local Development
 

@@ -357,9 +357,9 @@ def main():
     # Get configuration
     web_config = config['web']
 
-    # Use Render's PORT environment variable if available
+    # Use Cloud Run's PORT environment variable if available
     port = int(os.environ.get('PORT', web_config['port']))
-    host = os.environ.get('HOST', web_config['host'])
+    host = os.environ.get('HOST', '0.0.0.0')  # Cloud Run requires 0.0.0.0
 
     logger.info("Starting ASL-to-Text AI web application")
     logger.info(f"Server will run on {host}:{port}")
